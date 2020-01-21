@@ -170,6 +170,8 @@ def sub(sock, subresponse, giftdict):
         elif msgid == 'subgift':
             giftcount = int(message['msg-param-sender-count'])
             if giftcount == 0:
+                #this is to avoid counting for a mass gift
+                #could probably just add an "and" to the elif
                 return
             else:
                 giftdict[userid] = giftcount
