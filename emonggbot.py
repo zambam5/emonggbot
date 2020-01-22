@@ -50,7 +50,6 @@ def login(sock, PASS, NICK, CHAN):
 
 
 def chat(sock, msg, CHAN):
-    # this was not written by me
     """
     Send a chat message to the server.
     Keyword arguments:
@@ -68,10 +67,15 @@ def ping(sock, response):
 
 
 def pong(sock):
+    # a function to ping twitch I guess?
     sock.send("PING :tmi.twitch.tv\r\n".encode("utf-8"))
 
 
 def splitmessages(response):
+    '''
+    when chat is moving very fast twitch sometimes mashes messages together
+    this aims to split messages that are mashed together
+    '''
     linecount = response.count('@badge')
     messages = []
     if linecount == 1:
@@ -87,6 +91,12 @@ def splitmessages(response):
 
 
 def message_dict_maker(message):
+    '''
+    break messages into dictionaries
+    there isn't a strict structure to message tags, so we try to force some
+    PRIVMSG are normal chat messages, but also include highlight messages
+    USERNOTICE includes subs, resubs and gift subs
+    '''
     messagelist1 = message.split('user-type=')
     messagelist = messagelist1[0].split(';')
     messagedict = dict()
@@ -106,7 +116,10 @@ def message_dict_maker(message):
 
 
 def viewer_list(chan):
-    # should only need the channel name here
+    '''
+    return viewer list for given channel
+    moderators and viewers are seperate lists
+    '''
     url = "https://tmi.twitch.tv/group/user/{}/chatters".format(chan)
     r = requests.get(url)
     chatters = json.loads(r.content)['chatters']
@@ -123,135 +136,145 @@ def sub(sock, subresponse, giftdict):
     giftdict is the dictionary of gifted sub counts
     respond to new subs and resubs
     log number gifted for gift subs
-    USERNOTICE is the easiest way to pick the messages out
-    pids = potential ids for subs
+    user id logged in case of name change
     '''
-    pids = ["msg-id=sub","msg-id=resub","msg-id=subgift",'msg-id=submysterygift']
-    if "USERNOTICE" == subresponse['message type']:
-        message = subresponse
-        msgid = message['msg-id']
-        name = message['display-name']
-        userid = message['user-id']
-        if msgid == "sub":
-            newresponses = ["Thanks for the sub {}, and welcome! emongC \r\n".format(name),
-                            "Welcome {}! emongA \r\n".format(name),
-                            "Welcome Detective {} emongL \r\n".format(name),
-                            "Thanks for the sub {} emongGood".format(name),
-                            "Welcome {}, and be sure to smile emongSmile".format(name),
-                            "Welcome {} emongCool".format(name)
-                            ]
-            reply = random.choice(newresponses)
-            chat(sock, reply,cfg.CHAN)
-            logger.info("new sub")
-        elif msgid == "resub":
-            sublength = message['msg-param-cumulative-months']
-            resubresponses = ["Welcome back {}! emongC\r\n".format(name),
-                              "Thank you for your continued work Detective {} emongL \r\n".format(name),
-                              "Here is your complimentary mustache from your local mustache salesman {} emongB \r\n".format(name),
-                              "Thanks for the resub {} emongGood".format(name),
-                              "Keep on smiling {} emongSmile".format(name),
-                              "Welcome back {} emongCool".format(name)
-                              ]
-            if int(sublength) >= 24:
-                resubresponses.append("Thanks for cancelling your sub {} emongPranked".format(name))
-            elif int(sublength) >= 36:
-                resubresponses.append("That's almost 2 years {} emongPotato").format(name)
-            reply = random.choice(resubresponses)
-            chat(sock, reply ,cfg.CHAN)
-            logger.info("resub")
-        elif name == "AnAnonymousGifter":
+    message = subresponse
+    msgid = message['msg-id']
+    name = message['display-name']
+    userid = message['user-id']
+    if msgid == "sub":
+        newresponses = ["Thanks for the sub {}, and welcome! emongC \r\n".format(name),
+                        "Welcome {}! emongA \r\n".format(name),
+                        "Welcome Detective {} emongL \r\n".format(name),
+                        "Thanks for the sub {} emongGood".format(name),
+                        "Welcome {}, and be sure to smile emongSmile".format(name),
+                        "Welcome {} emongCool".format(name)
+                        ]
+        reply = random.choice(newresponses)
+        chat(sock, reply,cfg.CHAN)
+        logger.info("new sub")
+    elif msgid == "resub":
+        sublength = message['msg-param-cumulative-months']
+        resubresponses = ["Welcome back {}! emongC\r\n".format(name),
+                          "Thank you for your continued work Detective {} emongL \r\n".format(name),
+                          "Here is your complimentary mustache from your local mustache salesman {} emongB \r\n".format(name),
+                          "Thanks for the resub {} emongGood".format(name),
+                          "Keep on smiling {} emongSmile".format(name),
+                          "Welcome back {} emongCool".format(name)
+                          ]
+        if int(sublength) >= 24:
+            resubresponses.append("Thanks for cancelling your sub {} emongPranked".format(name))
+        elif int(sublength) >= 36:
+            resubresponses.append("That's almost 2 years {} emongPotato").format(name)
+        reply = random.choice(resubresponses)
+        chat(sock, reply ,cfg.CHAN)
+        logger.info("resub")
+    elif name == "AnAnonymousGifter":
+        return
+    elif msgid == 'submysterygift':
+        giftcount = int(message['msg-param-sender-count'])
+        giftdict[userid] = giftcount
+        with open("giftcounts.txt","w") as f:
+            f.write(json.dumps(giftdict))
+        logger.info("mystery gift")
+    elif msgid == 'subgift':
+        giftcount = int(message['msg-param-sender-count'])
+        if giftcount == 0:
+            #this is to avoid counting for a mass gift
+            #could probably just add an "and" to the elif
             return
-        elif msgid == 'submysterygift':
-            giftcount = int(message['msg-param-sender-count'])
+        else:
             giftdict[userid] = giftcount
             with open("giftcounts.txt","w") as f:
                 f.write(json.dumps(giftdict))
-            logger.info("mystery gift")
-        elif msgid == 'subgift':
-            giftcount = int(message['msg-param-sender-count'])
-            if giftcount == 0:
-                #this is to avoid counting for a mass gift
-                #could probably just add an "and" to the elif
-                return
-            else:
-                giftdict[userid] = giftcount
-                with open("giftcounts.txt","w") as f:
-                    f.write(json.dumps(giftdict))
-                logger.info("targeted gift")
-        return
+            logger.info("targeted gift")
     return
 
 
-# noinspection PyShadowingNames,PyShadowingNames
 def roulette(response, sock):
-    if "PRIVMSG" == response['message type']:
-        message = response
-        name = message['display-name']
-        actualmessage = message['actual message']
-        if actualmessage.startswith("!roulette"):
-            if message['mod'] == '1':
-                if name == "Jasper_The_Winner":
-                    chat(sock, "{} I'm on my way Clap2 emongPranked".format(name), cfg.CHAN)
-                    return False
-                chat(sock, "{} you're a mod, you can't die FeelsWeirdMan".format(name), cfg.CHAN)
+    '''
+    russian roulette for timeout
+    return True will put the roulette on a cooldown
+    return False will not
+    mods do not trigger cooldown as they cannot be timed out
+    jasper wanted to feel special
+    '''
+    message = response
+    name = message['display-name']
+    actualmessage = message['actual message']
+    if actualmessage.startswith("!roulette"):
+        if message['mod'] == '1':
+            if name == "Jasper_The_Winner":
+                chat(sock, "{} I'm on my way Clap2 emongPranked".format(name), cfg.CHAN)
                 return False
-            logger.info("roulette")
-            shotlist = [True, True, True, True, True, False]
-            oneliners = ["{}'s skull is too thick to be pierced by the bullet".format(name),
-                         "{} somehow missed the shot".format(name),
-                         "The shot has been fired and  hit, but {} doesn't seem to have noticed?".format(name),
-                         "{} chickened out and threw the gun down".format(name),
-                         "The trigger is pulled and... *click* {} has survived".format(name)]
-            x = random.choice(shotlist)
-            if x:
-                line = random.choice(oneliners)
-                chat(sock, line, cfg.CHAN)
-            else:
-                chat(sock, "/timeout {} 120 roulette".format(name), cfg.CHAN)
-                chat(sock, "RIP in pieces, {}".format(name), cfg.CHAN)
-            return True
-        else:
+            chat(sock, "{} you're a mod, you can't die FeelsWeirdMan".format(name), cfg.CHAN)
             return False
+        logger.info("roulette")
+        shotlist = [True, True, True, True, True, False]
+        oneliners = ["{}'s skull is too thick to be pierced by the bullet".format(name),
+                     "{} somehow missed the shot".format(name),
+                     "The shot has been fired and  hit, but {} doesn't seem to have noticed?".format(name),
+                     "{} chickened out and threw the gun down".format(name),
+                     "The trigger is pulled and... *click* {} has survived".format(name)]
+        x = random.choice(shotlist)
+        if x:
+            line = random.choice(oneliners)
+            chat(sock, line, cfg.CHAN)
+        else:
+            chat(sock, "/timeout {} 120 roulette".format(name), cfg.CHAN)
+            chat(sock, "RIP in pieces, {}".format(name), cfg.CHAN)
+        return True
+    else:
+        return False
 
 
-# noinspection PyShadowingNames,PyShadowingNames,PyShadowingNames
 def countcommand(s,message,leaderboard,giftdict):
-    if message["message type"] == "PRIVMSG":
-        response = message['actual message']
-        if "!giftcount" in response or "!giftrank" in response:
-            name = message['display-name']
-            userid = message['user-id']
-            if response.startswith("!giftcount"):
-                if userid in giftdict.keys():
-                    giftcount = giftdict[userid]
-                    chat(s,"{} you have gifted {} subs to emongg! If this number is wrong, whisper zambam5".format(name,giftcount),cfg.CHAN)
-                else:
-                    chat(s,"{} you have not gifted a sub since I started tracking, sorry!".format(name),cfg.CHAN)
-            elif response.startswith("!giftrank"):
-                if name == "evergreentrail":
-                    chat(s,"You have ascended beyond my rankings, and have become the tree under which gifts are placed.",cfg.CHAN)
-                elif userid in giftdict.keys():
-                    giftcount = giftdict[userid]
-                    for i in range(0,len(leaderboard)):
-                        if userid in leaderboard[i]:
-                            rank = i
-                    chat(s,"{} you are unofficially {} out of {} with {} subs gifted".format(name,rank,len(leaderboard)-1,giftcount),cfg.CHAN)
-                else:
-                    chat(s,"You are currently unranked",cfg.CHAN)
+    '''
+    giftdict is a dictionary with user id strings as keys and int gift values
+    leaderboard is an ordered list of tuples by highest gift value
+    user id is used in case the user changes their username
+    '''
+    response = message['actual message']
+    if "!giftcount" in response or "!giftrank" in response:
+        name = message['display-name']
+        userid = message['user-id']
+        if response.startswith("!giftcount"):
+            if userid in giftdict.keys():
+                giftcount = giftdict[userid]
+                chat(s,"{} you have gifted {} subs to emongg! If this number is wrong, whisper zambam5".format(name,giftcount),cfg.CHAN)
+            else:
+                chat(s,"{} you have not gifted a sub since I started tracking, sorry!".format(name),cfg.CHAN)
+        elif response.startswith("!giftrank"):
+            if name == "evergreentrail":
+                chat(s,"You have ascended beyond my rankings, and have become the tree under which gifts are placed.",cfg.CHAN)
+            elif userid in giftdict.keys():
+                giftcount = giftdict[userid]
+                for i in range(0,len(leaderboard)):
+                    if userid in leaderboard[i]:
+                        rank = i
+                chat(s,"{} you are unofficially {} out of {} with {} subs gifted".format(name,rank,len(leaderboard)-1,giftcount),cfg.CHAN)
+            else:
+                chat(s,"You are currently unranked",cfg.CHAN)
 
 
 def word_filter(sock,message,banlist):
-    if "PRIVMSG" == message['message type']:
-        m = message["actual message"]
-        mlist = m.split(' ')
-        for word in banlist:
-            if word in mlist:
-                name = message['display-name']
-                time.sleep(1)
-                chat(sock, "/ban {}".format(name), cfg.CHAN)
+    '''
+    ban people who say bad thing
+    banlist contain bad thing
+    '''
+    m = message["actual message"]
+    mlist = m.split(' ')
+    for word in banlist:
+        if word in mlist:
+            name = message['display-name']
+            time.sleep(1)
+            chat(sock, "/ban {}".format(name), cfg.CHAN)
 
 
 def leaderboard(giftdict):
+    '''
+    takes the gift dict and orders it from highest to lowest
+    '''
     leaderboard = []
     for name in sorted(giftdict, key=giftdict.get, reverse=True):
         leaderboard.append([name,giftdict[name]])
@@ -259,6 +282,11 @@ def leaderboard(giftdict):
 
 
 def discord_message(message, webhook):
+    '''
+    post the contents of a message to discord using a webhook
+    username in discord will be users name on twitch
+    icon is just discord default icon 
+    '''
     data = {}
     name = message['display-name']
     data["content"] = message['actual message']
@@ -306,17 +334,19 @@ if __name__ == "__main__":
                     logging.exception(response)
                     continue
                 leaderb = leaderboard(giftdict)
-                sub(s, messagedict, giftdict)
-                countcommand(s,messagedict,leaderb,giftdict)
-                word_filter(s, messagedict, banlist)
-                if 'custom-reward-id' in messagedict.keys():
-                    print(messagedict) #just until emongg does a thing
-                    if messagedict['custom-reward-id'] == 'tbd':
-                        discord_message(messagedict, cfg.URL)
-                if time.time() - timer > 30:
-                    timecheck = roulette(messagedict, s)
-                    if timecheck:
-                        timer = time.time()
+                if "USERNOTICE" == messagedict['message type']:
+                    sub(s, messagedict, giftdict)
+                elif "PRIVMSG" == messagedict['message type']:
+                    countcommand(s,messagedict,leaderb,giftdict)
+                    word_filter(s, messagedict, banlist)
+                    if 'custom-reward-id' in messagedict.keys():
+                        print(messagedict) #just until emongg does a thing
+                        if messagedict['custom-reward-id'] == 'tbd':
+                            discord_message(messagedict, cfg.URL)
+                    if time.time() - timer > 30:
+                        timecheck = roulette(messagedict, s)
+                        if timecheck:
+                            timer = time.time()
         except Exception as e:
             logger.exception("error")
             logger.debug(response)
