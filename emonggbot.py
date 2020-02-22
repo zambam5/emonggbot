@@ -502,7 +502,8 @@ if __name__ == "__main__":
 
     #create cooldown timers for commands
     t = time.time()
-    timer, timeq, times = time.time(), time.time(), time.time()
+    time_roulette, time_queue, time_song = time.time(), time.time(), time.time()
+
     #this is for roulette command since it's not guaranteed to be put on cooldown
     timecheck = False
     while True:
@@ -551,7 +552,8 @@ if __name__ == "__main__":
                     word_list = messagedict['actual message'][:-2].split(" ", 1)
                     #currently only need to split the first word from the rest
                     command = word_list[0]
-                    if command == '!roulette' and time.time() - timer > 30:
+                    if command == '!roulette' and time.time() - time_roulette > 30:
+                        #check if the command is !roulette and if it's been 30 seconds
                         timecheck = roulette(messagedict, s)
                         mtesting = True
                         if timecheck:
@@ -559,7 +561,8 @@ if __name__ == "__main__":
                     elif command == '!clearplaylist':
                         clear_playlist(s, messagedict)
                         mtesting = True
-                    elif command == '!srqueue' and time.time() - timeq > 20:
+                    elif command == '!srqueue' and time.time() - time_queue > 20:
+                        #check if the command is !srqueue and if it's been 20 seconds
                         queue_length(s, messagedict)
                         timeq = time.time()
                         mtesting = True
@@ -567,7 +570,8 @@ if __name__ == "__main__":
                         leaderb = leaderboard(giftdict)
                         countcommand(s, messagedict, leaderb, giftdict)
                         mtesting = True
-                    elif command == '!song' and time.time() - times > 30:
+                    elif command == '!song' and time.time() - time_song > 30:
+                        #check if the command is !song and if it's been 30 seconds
                         now_playing(s)
                         times = time.time()
                         mtesting = True
