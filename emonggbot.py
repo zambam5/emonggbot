@@ -10,7 +10,7 @@ import spotipy.util as util
 import nowplaying
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 handler = logging.FileHandler('emonggbot.log', mode='w')
 formatter = logging.Formatter('''%(asctime)s -
@@ -238,7 +238,7 @@ def roulette(response, sock):
                         "{} BOP".format(name)]
             line = random.choice(oneliners)
             chat(sock, "/timeout {} 120 roulette".format(name), cfg.CHAN)
-            chat(sock, "RIP in pieces, {}".format(name), cfg.CHAN)
+            chat(sock, line, cfg.CHAN)
         return True
     else:
         return False
@@ -340,7 +340,7 @@ def song_requests(sock, message, url):
             tokenz = oauthz.refresh_access_token(token['refresh_token'])
         except spotipy.client.SpotifyException:
             logger.info("error")
-        spz = spotipy.Spotify(auth=token['access_token'])
+        spz = spotipy.Spotify(auth=tokenz['access_token'])
         logger.info('token refreshed?')
     name = message['display-name']
     m = message['actual message']
@@ -406,7 +406,7 @@ def now_playing(sock):
         logger.info('token refreshed?')
     data = sp.current_user_playing_track()
     if data == None:
-        message = 'The song is unknown, just like our futures pepeJAM'
+        message = '/me The song is unknown, just like our futures pepeJAM'
         chat(sock, message, cfg.CHAN)
         return
     name = data['item']['name']
@@ -419,14 +419,14 @@ def now_playing(sock):
         for artist in artists:
             combined += artist['name'] + " & "
         message += combined[:-3]
-    chat(sock, message, cfg.CHAN)
+    chat(sock,"/me " + message, cfg.CHAN)
 
 
 def clear_playlist(sock, message):
     global spz, tokenz, oauthz, userz, playlist
     expired = spotipy.oauth2.is_token_expired(tokenz)
     if expired:
-        tokenz = oauth.refresh_access_token(tokenz['refresh_token'])
+        tokenz = oauthz.refresh_access_token(tokenz['refresh_token'])
         spz = spotipy.Spotify(auth=tokenz['access_token'])
         logger.info('token refreshed?')
     if message['mod'] == '1' or 'broadcaster' in message['badges']:
@@ -443,9 +443,17 @@ def clear_playlist(sock, message):
 def queue_length(sock, message):
     global spz, tokenz, oauthz, userz, playlist
     expired = spotipy.oauth2.is_token_expired(tokenz)
+    try:
+        expired = spotipy.oauth2.is_token_expired(tokenz)
+    except spotipy.client.SpotifyException:
+        logger.info("error")
     if expired:
-        tokenz = oauth.refresh_access_token(tokenz['refresh_token'])
-        sp = spotipy.Spotify(auth=tokenz['access_token'])
+        try:
+            tokenz = oauthz.refresh_access_token(tokenz['refresh_token'])
+        except spotipy.client.SpotifyException:
+            logger.info("error")
+            return
+        spz = spotipy.Spotify(auth=tokenz['access_token'])
         logger.info('token refreshed?')
     tracks = len(spz.playlist_tracks(playlist)['items'])
     chat(sock, "There are {} songs in queue".format(tracks), cfg.CHAN)
@@ -467,7 +475,7 @@ if __name__ == "__main__":
     else:
         print("Can't get token for ", user_config['username'])
     user = cfg.SPOTIFY_USER
-    CACHE = '.spotipyoauthcache'
+    CACHE = '.emonggoauthcache'
     oauth = spotipy.oauth2.SpotifyOAuth(cfg.SPOTIFY_ID, cfg.SPOTIFY_SECRET,
                                         cfg.SPOTIFY_REDIRECT,
                                         scope='playlist-modify-public playlist-modify-private',
@@ -491,64 +499,80 @@ if __name__ == "__main__":
     connect(cfg.HOST, cfg.PORT)
     login(s, cfg.PASS, cfg.NICK, cfg.CHAN)
     chan = cfg.CHAN[1:]
+
+    #create cooldown timers for commands
     t = time.time()
     timer, timeq, times = time.time(), time.time(), time.time()
+    #this is for roulette command since it's not guaranteed to be put on cooldown
     timecheck = False
-    cd = 15
     while True:
         mtesting = False
+        #mtesting returns True if the bot sends a message
+        #want to avoid putting the bot to sleep if no message sent
         try:
             response = s.recv(4096).decode("utf-8")
         except UnicodeDecodeError:
             continue
         if response == "":
             continue
+        ping_test = ping(s, response) #not sure why I needed this to say True
+
+        #messages start getting packed together when chat is fast so we split
         try:
             messagelist = splitmessages(response)
-            ping_test = ping(s, response)
-            for message in messagelist:
-                if "USERSTATE" in message:
-                    continue
-                try:
-                    messagedict = message_dict_maker(message)
-                except:
-                    logging.exception(response)
-                    continue
-                leaderb = leaderboard(giftdict)
-                if "USERNOTICE" == messagedict['message type']:
-                    mtesting = sub(s, messagedict, giftdict)
-                elif "PRIVMSG" == messagedict['message type']:
-                    mtesting = word_filter(s, messagedict, banlist)
-                    if 'custom-reward-id' in messagedict.keys():
-                        if messagedict['custom-reward-id'] == 'dc52dc53-f7a1-4229-afda-a404a2e37c5f':
-                            song_requests(s, messagedict, cfg.URL)
-                            mtesting = True
-                    elif messagedict['actual message'].startswith('!'):
-                        word_list = messagedict['actual message'][:-2].split(" ")
-                        command = word_list[0]
-                        if command == '!roulette' and time.time() - timer > 30:
-                            timecheck = roulette(messagedict, s)
-                            mtesting = True
-                            if timecheck:
-                                timer = time.time()
-                        elif command == '!clearplaylist':
-                            clear_playlist(s, messagedict)
-                            mtesting = True
-                        elif command == '!srqueue' and time.time() - timeq > 20:
-                            queue_length(s, messagedict)
-                            timeq = time.time()
-                            mtesting = True
-                        elif command == '!giftrank' or command == '!giftcount':
-                            countcommand(s, messagedict, leaderb, giftdict)
-                            mtesting = True
-                        '''elif command == '!song' and time.time() - times > 22:
-                            now_playing(s)
-                            times = time.time()
-                            mtesting = True'''
-                elif "WHISPER" == messagedict['message type']:
-                    mtesting = whisper_response(messagedict, s)
-        except Exception as e:
-            logger.exception("error")
-            logger.debug(response)
+        except:
+            #there are still some things that break and I don't know why
+            logger.exception(response, exc_info = True)
+            continue
+
+        for message in messagelist:
+            if "USERSTATE" in message:
+                #this tag throws an error for dict_maker below
+                continue
+            try:
+                messagedict = message_dict_maker(message)
+            except:
+                #there are still some things I haven't worked out for this yet
+                logger.exception(message, exc_info = True)
+                continue
+            if "USERNOTICE" == messagedict['message type']:
+                #usernotice is for stuff like subs
+                mtesting = sub(s, messagedict, giftdict)
+            elif "PRIVMSG" == messagedict['message type']:
+                #privmsg is normal chat messages
+                mtesting = word_filter(s, messagedict, banlist)
+                if 'custom-reward-id' in messagedict.keys():
+                    #eventually there will be more things to do here
+                    if messagedict['custom-reward-id'] == 'dc52dc53-f7a1-4229-afda-a404a2e37c5f':
+                        song_requests(s, messagedict, cfg.URL)
+                        mtesting = True
+                elif messagedict['actual message'].startswith('!'):
+                    #is there a command
+                    word_list = messagedict['actual message'][:-2].split(" ", 1)
+                    #currently only need to split the first word from the rest
+                    command = word_list[0]
+                    if command == '!roulette' and time.time() - timer > 30:
+                        timecheck = roulette(messagedict, s)
+                        mtesting = True
+                        if timecheck:
+                            timer = time.time()
+                    elif command == '!clearplaylist':
+                        clear_playlist(s, messagedict)
+                        mtesting = True
+                    elif command == '!srqueue' and time.time() - timeq > 20:
+                        queue_length(s, messagedict)
+                        timeq = time.time()
+                        mtesting = True
+                    elif command == '!giftrank' or command == '!giftcount':
+                        leaderb = leaderboard(giftdict)
+                        countcommand(s, messagedict, leaderb, giftdict)
+                        mtesting = True
+                    elif command == '!song' and time.time() - times > 30:
+                        now_playing(s)
+                        times = time.time()
+                        mtesting = True
+            elif "WHISPER" == messagedict['message type']:
+                mtesting = whisper_response(messagedict, s)
         if mtesting:
+            #bot sent a message so must sleep emongZ
             time.sleep(1/cfg.RATE)
