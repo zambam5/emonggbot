@@ -80,17 +80,18 @@ def splitmessages(response):
     when chat is moving very fast twitch sometimes mashes messages together
     this aims to split messages that are mashed together
     '''
-    linecount = response.count('@badge')
+    '''linecount = response.count('@badge-')
     messages = []
     if linecount == 1:
         messages.append(response)
     elif linecount > 1:
-        messages1 = response.split('@badge')
+        messages1 = response.split('@badge-')
         for i in messages1:
             if len(i) == 0:
                 continue
             else:
-                messages.append(i)
+                messages.append(i)'''
+    messages = response.splitlines()
     return messages
 
 
@@ -112,7 +113,7 @@ def message_dict_maker(message):
             messagedict[items[0]] = ''
     if "PRIVMSG" in messagelist1[1]:
         messagedict['message type'] = "PRIVMSG"
-        firstsplit = messagelist1[1].split(" " + cfg.CHAN + " :")
+        firstsplit = messagelist1[1].split(" "+ cfg.CHAN + " :")
         messagedict['actual message'] = firstsplit[1].strip(':')
     elif "USERNOTICE" in messagelist1[1]:
         messagedict['message type'] = "USERNOTICE"
@@ -296,21 +297,6 @@ def leaderboard(giftdict):
     return leaderboard
 
 
-def remove_text(message):
-    if '.com' in message or '.be' in message:
-        mlist = message.split(' ')
-        for idx, item in enumerate(mlist):
-            if '.com' in message or '.be' in message:
-                if item.endswith("\r\n"):
-                    print('found one')
-                    item = item[:-4]
-                    item.strip('\\r\\n')
-                item = '<' + item + '>'
-                mlist[idx] = item
-        message = ' '.join(mlist)
-    return message
-
-
 def extract_link(message):
     match = re.search("(?P<url>open.spotify.com[^\s]+)", message)
     if match is not None:
@@ -337,7 +323,7 @@ def song_requests(sock, message, url):
         logger.info("error")
     if expired:
         try:
-            tokenz = oauthz.refresh_access_token(token['refresh_token'])
+            tokenz = oauthz.refresh_access_token(tokenz['refresh_token'])
         except spotipy.client.SpotifyException:
             logger.info("error")
         spz = spotipy.Spotify(auth=tokenz['access_token'])
@@ -430,6 +416,7 @@ def clear_playlist(sock, message):
         spz = spotipy.Spotify(auth=tokenz['access_token'])
         logger.info('token refreshed?')
     if message['mod'] == '1' or 'broadcaster' in message['badges']:
+        #believe it or not, twitch does not consider broadcasters mods
         tracks = spz.playlist_tracks(playlist)['items']
         track_list = []
         for item in tracks:
@@ -446,12 +433,12 @@ def queue_length(sock, message):
     try:
         expired = spotipy.oauth2.is_token_expired(tokenz)
     except spotipy.client.SpotifyException:
-        logger.info("error")
+        logger.exception("error", exc_info=True)
     if expired:
         try:
             tokenz = oauthz.refresh_access_token(tokenz['refresh_token'])
         except spotipy.client.SpotifyException:
-            logger.info("error")
+            logger.exception("error", exc_info=True)
             return
         spz = spotipy.Spotify(auth=tokenz['access_token'])
         logger.info('token refreshed?')
@@ -460,6 +447,7 @@ def queue_length(sock, message):
 
 
 if __name__ == "__main__":
+    #spotify stuff with a z at the end is for my account
     userz = cfg.SPOTIFY_USERz
     playlist = cfg.SPOTIFY_PLAYLIST
     history = cfg.SPOTIFY_PLAYLIST2
@@ -474,6 +462,8 @@ if __name__ == "__main__":
         spz = spotipy.Spotify(auth=tokenz['access_token'])
     else:
         print("Can't get token for ", user_config['username'])
+
+    #this is for emongg's account
     user = cfg.SPOTIFY_USER
     CACHE = '.emonggoauthcache'
     oauth = spotipy.oauth2.SpotifyOAuth(cfg.SPOTIFY_ID, cfg.SPOTIFY_SECRET,
@@ -526,57 +516,60 @@ if __name__ == "__main__":
             logger.exception(response, exc_info = True)
             continue
 
-        for message in messagelist:
-            if "USERSTATE" in message:
-                #this tag throws an error for dict_maker below
-                continue
-            try:
-                messagedict = message_dict_maker(message)
-            except:
-                #there are still some things I haven't worked out for this yet
-                logger.exception(message, exc_info = True)
-                continue
-            if "USERNOTICE" == messagedict['message type']:
-                #usernotice is for stuff like subs
-                mtesting = sub(s, messagedict, giftdict)
-            elif "PRIVMSG" == messagedict['message type']:
-                #privmsg is normal chat messages
-                mtesting = word_filter(s, messagedict, banlist)
-                if 'custom-reward-id' in messagedict.keys():
-                    #eventually there will be more things to do here
-                    if messagedict['custom-reward-id'] == 'dc52dc53-f7a1-4229-afda-a404a2e37c5f':
-                        song_requests(s, messagedict, cfg.URL)
-                        mtesting = True
-                elif messagedict['actual message'].startswith('!'):
-                    #is there a command
-                    word_list = messagedict['actual message'][:-2].split(" ", 1)
-                    #currently only need to split the first word from the rest
-                    command = word_list[0]
-                    if command == '!roulette' and time.time() - time_roulette > 30:
-                        #check if the command is !roulette and if it's been 30 seconds
-                        timecheck = roulette(messagedict, s)
-                        mtesting = True
-                        if timecheck:
-                            timer = time.time()
-                    elif command == '!clearplaylist':
-                        clear_playlist(s, messagedict)
-                        mtesting = True
-                    elif command == '!srqueue' and time.time() - time_queue > 20:
-                        #check if the command is !srqueue and if it's been 20 seconds
-                        queue_length(s, messagedict)
-                        timeq = time.time()
-                        mtesting = True
-                    elif command == '!giftrank' or command == '!giftcount':
-                        leaderb = leaderboard(giftdict)
-                        countcommand(s, messagedict, leaderb, giftdict)
-                        mtesting = True
-                    elif command == '!song' and time.time() - time_song > 30:
-                        #check if the command is !song and if it's been 30 seconds
-                        now_playing(s)
-                        times = time.time()
-                        mtesting = True
-            elif "WHISPER" == messagedict['message type']:
-                mtesting = whisper_response(messagedict, s)
+        try:
+            for message in messagelist:
+                if "USERSTATE" in message:
+                    #this tag throws an error for dict_maker below
+                    continue
+                try:
+                    messagedict = message_dict_maker(message)
+                except:
+                    #there are still some things I haven't worked out for this yet
+                    logger.exception(message, exc_info = True)
+                    continue
+                if "USERNOTICE" == messagedict['message type']:
+                    #usernotice is for stuff like subs
+                    mtesting = sub(s, messagedict, giftdict)
+                elif "PRIVMSG" == messagedict['message type']:
+                    #privmsg is normal chat messages
+                    mtesting = word_filter(s, messagedict, banlist)
+                    if 'custom-reward-id' in messagedict.keys():
+                        #eventually there will be more things to do here
+                        if messagedict['custom-reward-id'] == 'dc52dc53-f7a1-4229-afda-a404a2e37c5f':
+                            song_requests(s, messagedict, cfg.URL)
+                            mtesting = True
+                    elif messagedict['actual message'].startswith('!'):
+                        #is there a command
+                        word_list = messagedict['actual message'][:-2].split(" ", 1)
+                        #currently only need to split the first word from the rest
+                        command = word_list[0].lower()
+                        if command == '!roulette' and time.time() - time_roulette > 30:
+                            #check if the command is !roulette and if it's been 30 seconds
+                            timecheck = roulette(messagedict, s)
+                            mtesting = True
+                            if timecheck:
+                                time_roulette = time.time()
+                        elif command == '!clearplaylist':
+                            clear_playlist(s, messagedict)
+                            mtesting = True
+                        elif command == '!srqueue' and time.time() - time_queue > 20:
+                            #check if the command is !srqueue and if it's been 20 seconds
+                            queue_length(s, messagedict)
+                            time_queue = time.time()
+                            mtesting = True
+                        elif command == '!giftrank' or command == '!giftcount':
+                            leaderb = leaderboard(giftdict)
+                            countcommand(s, messagedict, leaderb, giftdict)
+                            mtesting = True
+                        elif command == '!song' and time.time() - time_song > 30:
+                            #check if the command is !song and if it's been 30 seconds
+                            now_playing(s)
+                            time_song = time.time()
+                            mtesting = True
+                elif "WHISPER" == messagedict['message type']:
+                    mtesting = whisper_response(messagedict, s)
+        except:
+            logger.info("error", response)
         if mtesting:
             #bot sent a message so must sleep emongZ
             time.sleep(1/cfg.RATE)
