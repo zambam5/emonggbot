@@ -7,7 +7,7 @@ import cfgai as cfg
 import time, logging, random, json, requests, socket, re
 import spotipy
 import spotipy.util as util
-import nowplaying
+from datetime import datetime
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -47,11 +47,13 @@ def login(sock, PASS, NICK, CHAN):
     test = sock.recv(1024).decode("utf-8")
     logger.info(test)
     sock.send("CAP REQ :twitch.tv/commands\r\n".encode("utf-8"))
+    time.sleep(0.5)
     test = sock.recv(1024).decode("utf-8")
     logger.info(test)
 
 
 def chat(sock, msg, CHAN):
+    # this was not written by me
     """
     Send a chat message to the server.
     Keyword arguments:
@@ -62,72 +64,62 @@ def chat(sock, msg, CHAN):
     return True
 
 
-def ping(sock, response):
-    # check for ping from twitch and respond
-    if "PING :tmi.twitch.tv" in response:
-        sock.send("PONG :tmi.twitch.tv\r\n".encode("utf-8"))
-        logger.info("ping")
-        return True
-
-
 def pong(sock):
-    # a function to ping twitch I guess?
     sock.send("PING :tmi.twitch.tv\r\n".encode("utf-8"))
 
 
 def splitmessages(response):
-    '''
-    when chat is moving very fast twitch sometimes mashes messages together
-    this aims to split messages that are mashed together
-    '''
-    '''linecount = response.count('@badge-')
-    messages = []
-    if linecount == 1:
-        messages.append(response)
-    elif linecount > 1:
-        messages1 = response.split('@badge-')
-        for i in messages1:
-            if len(i) == 0:
-                continue
-            else:
-                messages.append(i)'''
     messages = response.splitlines()
     return messages
 
 
 def message_dict_maker(message):
-    '''
-    break messages into dictionaries
-    there isn't a strict structure to message tags, so we try to force some
-    PRIVMSG are normal chat messages, but also include highlight messages
-    USERNOTICE includes subs, resubs and gift subs
-    '''
-    messagelist1 = message.split('user-type=')
-    messagelist = messagelist1[0].split(';')
     messagedict = dict()
-    for item in messagelist:
-        items = item.split('=')
-        try:
-            messagedict[items[0]] = items[1]
-        except IndexError:
-            messagedict[items[0]] = ''
-    if "PRIVMSG" in messagelist1[1]:
-        messagedict['message type'] = "PRIVMSG"
-        firstsplit = messagelist1[1].split(" "+ cfg.CHAN + " :")
-        messagedict['actual message'] = firstsplit[1].strip(':')
-    elif "USERNOTICE" in messagelist1[1]:
-        messagedict['message type'] = "USERNOTICE"
-    elif "WHISPER" in messagelist1[1]:
-        logger.info('whisper')
-        messagedict['message type'] = "WHISPER"
+    if message.startswith('PING'):
+        messagedict['message type'] = 'PING'
+        messagedict['time'] = datetime.now()
+        return messagedict
+    elif 'user-type=' in message:
+        messagelist1 = message.split('user-type=')
+        messagelist = messagelist1[0].split(';')
+        for item in messagelist:
+            items = item.split('=')
+            try:
+                messagedict[items[0]] = items[1]
+            except IndexError:
+                messagedict[items[0]] = ''
+        if "WHISPER" in messagelist1[1]:
+            print("whisper")
+            messagedict['message type'] = "WHISPER"
+        elif "PRIVMSG" in messagelist1[1]:
+            messagedict['message type'] = "PRIVMSG"
+            firstsplit = messagelist1[1].split(" " + cfg.CHAN + " :")
+            messagedict['actual message'] = firstsplit[1].strip(':')
+        elif "USERNOTICE" in messagelist1[1]:
+            messagedict['message type'] = "USERNOTICE"
+        elif "USERSTATE" in messagelist1[1]:
+            messagedict['message type'] = "USERSTATE"
+        return messagedict
+    messagelist1 = message.split(' ')
+    print(messagelist1)
+    if messagelist1[1] == "HOSTTARGET":
+        messagedict['message type'] = 'HOSTTARGET'
+        messagedict['host target'] = messagelist1[3].strip(':')
+    elif messagelist1[2] == "NOTICE":
+        messagedict['message type'] = "NOTICE"
+    elif messagelist1[2] == "CLEARCHAT":
+        messagedict['message type'] = "CLEARCHAT"
+    elif messagelist1[2] == "ROOMSTATE":
+        messagedict['message type'] = "ROOMSTATE"
+    elif messagelist1[2] == "CLEARMSG":
+        print('here')
+        messagedict['message type'] = "CLEARMSG"
     return messagedict
+    
 
 
 def viewer_list(chan):
-    '''
-    return viewer list for given channel
-    moderators and viewers are seperate lists
-    '''
+    # should only need the channel name here
     url = "https://tmi.twitch.tv/group/user/{}/chatters".format(chan)
     r = requests.get(url)
     chatters = json.loads(r.content)['chatters']
@@ -136,93 +128,17 @@ def viewer_list(chan):
     return moderators, viewers
 
 
-
-def sub(sock, subresponse, giftdict):
-    '''
-    sock to send message
-    response is the received message
-    giftdict is the dictionary of gifted sub counts
-    respond to new subs and resubs
-    log number gifted for gift subs
-    user id logged in case of name change
-    '''
-    message = subresponse
-    msgid = message['msg-id']
-    name = message['display-name']
-    userid = message['user-id']
-    if msgid == "sub":
-        newresponses = ["Thanks for the sub {}, and welcome! emongC \r\n".format(name),
-                        "Welcome {}! emongA \r\n".format(name),
-                        "Welcome Detective {} emongL \r\n".format(name),
-                        "Thanks for the sub {} emongGood".format(name),
-                        "Welcome {}, and be sure to smile emongSmile".format(name),
-                        "Welcome {} emongCool".format(name)
-                        ]
-        reply = random.choice(newresponses)
-        logger.info("new sub")
-        return chat(sock, reply,cfg.CHAN)
-    elif msgid == "resub":
-        sublength = message['msg-param-cumulative-months']
-        resubresponses = ["Welcome back {}! emongC\r\n".format(name),
-                          "Thank you for your continued work Detective {} emongL \r\n".format(name),
-                          "Here is your complimentary mustache from your local mustache salesman {} emongB \r\n".format(name),
-                          "Thanks for the resub {} emongGood".format(name),
-                          "Keep on smiling {} emongSmile".format(name),
-                          "Welcome back {} emongCool".format(name)
-                          ]
-        if int(sublength) >= 24:
-            resubresponses.append("Thanks for cancelling your sub {} emongPranked".format(name))
-        elif int(sublength) >= 36:
-            resubresponses.append("That's almost 2 years {} emongPotato").format(name)
-        reply = random.choice(resubresponses)
-        logger.info("resub")
-        return chat(sock, reply ,cfg.CHAN)
-    elif name == "AnAnonymousGifter":
-        return False
-    elif msgid == 'submysterygift':
-        giftcount = int(message['msg-param-sender-count'])
-        giftdict[userid] = giftcount
-        with open("giftcounts.txt","w") as f:
-            f.write(json.dumps(giftdict))
-        logger.info("mystery gift")
-    elif msgid == 'subgift':
-        giftcount = int(message['msg-param-sender-count'])
-        if giftcount == 0:
-            #this is to avoid counting for a mass gift
-            #could probably just add an "and" to the elif
-            return False
-        else:
-            giftdict[userid] = giftcount
-            with open("giftcounts.txt","w") as f:
-                f.write(json.dumps(giftdict))
-            logger.info("targeted gift")
-    return False
-
-
-def whisper_response(response, sock):
-    name = response['display-name']
-    message = '/w {} This is a bot account, whisper another mod'.format(name)
-    return chat(sock, message, cfg.CHAN)
-
-
+time_roulette = time.time()
 def roulette(response, sock):
-    '''
-    russian roulette for timeout
-    return True will put the roulette on a cooldown
-    return False will not
-    mods do not trigger cooldown as they cannot be timed out
-    jasper wanted to feel special
-    '''
-    message = response
-    name = message['display-name']
-    actualmessage = message['actual message']
-    if actualmessage.startswith("!roulette"):
-        if message['mod'] == '1':
-            if name == "Jasper_The_Winner":
-                chat(sock, "{} I'm on my way Clap2 emongPranked".format(name), cfg.CHAN)
-                return False
-            chat(sock, "{} you're a mod, you can't die FeelsWeirdMan".format(name), cfg.CHAN)
-            return False
+    global time_roulette
+    if time.time() - time_roulette < 30:
+        return False
+    name = response['display-name']
+    if response['mod'] == '1':
+        if name == "Jasper_The_Winner":
+            return chat(sock, "{} I'm on my way Clap2 emongPranked".format(name), cfg.CHAN)
+        return chat(sock, "{} you're a mod, you can't die FeelsWeirdMan".format(name), cfg.CHAN)
+    else:
         logger.info("roulette")
         shotlist = [True, True, True, True, True, False]
         oneliners = ["{}'s skull is too thick to be pierced by the bullet".format(name),
@@ -235,14 +151,10 @@ def roulette(response, sock):
             line = random.choice(oneliners)
             chat(sock, line, cfg.CHAN)
         else:
-            oneliners = ["RIP in pieces, {}".format(name),
-                        "{} BOP".format(name)]
-            line = random.choice(oneliners)
             chat(sock, "/timeout {} 120 roulette".format(name), cfg.CHAN)
-            chat(sock, line, cfg.CHAN)
+            chat(sock, "RIP in pieces, {}".format(name), cfg.CHAN)
+        time_roulette = time.time()
         return True
-    else:
-        return False
 
 
 def countcommand(s,message,leaderboard,giftdict):
@@ -252,25 +164,24 @@ def countcommand(s,message,leaderboard,giftdict):
     user id is used in case the user changes their username
     '''
     response = message['actual message']
-    if "!giftcount" in response or "!giftrank" in response:
-        name = message['display-name']
-        userid = message['user-id']
-        if response.startswith("!giftcount"):
-            if userid in giftdict.keys():
-                giftcount = giftdict[userid]
-                return chat(s,"{} you have gifted {} subs to emongg! If this number is wrong, whisper zambam5".format(name,giftcount),cfg.CHAN)
-            else:
-                return chat(s,"{} you have not gifted a sub since I started tracking, sorry!".format(name),cfg.CHAN)
-        elif response.startswith("!giftrank"):
-            if userid in giftdict.keys():
-                giftcount = giftdict[userid]
-                for i in range(0,len(leaderboard)):
-                    if userid in leaderboard[i]:
-                        rank = i+1
-                        break
-                return chat(s,"{} you are unofficially {} out of {} with {} subs gifted".format(name,rank,len(leaderboard),giftcount),cfg.CHAN)
-            else:
-                return chat(s,"You are currently unranked",cfg.CHAN)
+    name = message['display-name']
+    userid = message['user-id']
+    if response.startswith("!giftcount"):
+        if userid in giftdict.keys():
+            giftcount = giftdict[userid]
+            return chat(s,"{} you have gifted {} subs to emongg! If this number is wrong, whisper zambam5".format(name,giftcount),cfg.CHAN)
+        else:
+            return chat(s,"{} you have not gifted a sub since I started tracking, sorry!".format(name),cfg.CHAN)
+    elif response.startswith("!giftrank"):
+        if userid in giftdict.keys():
+            giftcount = giftdict[userid]
+            for i in range(0,len(leaderboard)):
+                if userid in leaderboard[i]:
+                    rank = i+1
+                    break
+            return chat(s,"{} you are unofficially {} out of {} with {} subs gifted".format(name,rank,len(leaderboard),giftcount),cfg.CHAN)
+        else:
+            return chat(s,"You are currently unranked",cfg.CHAN)
 
 
 def word_filter(sock,message,banlist):
@@ -297,8 +208,22 @@ def leaderboard(giftdict):
     return leaderboard
 
 
+def remove_preview(message):
+    if '.com' in message or '.be' in message:
+        mlist = message.split(' ')
+        for idx, item in enumerate(mlist):
+            if '.com' in item or '.be' in item:
+                if item.endswith("\r\n"):
+                    print('found one')
+                    item = item[:-2]
+                item = '<' + item + '>'
+                mlist[idx] = item
+        message = ' '.join(mlist)
+    return message
+
+
 def extract_link(message):
-    match = re.search("(?P<url>open.spotify.com[^\s]+)", message)
+    match = re.search("(?P<url>open.spotify.com[^\\s]+)", message)
     if match is not None:
         return match.group("url")
     else:
@@ -312,8 +237,36 @@ def discord_message(name, content, url):
     data['username'] = name
     data['icon_url'] = "https://static-cdn.jtvnw.net/emoticons/v1/203782/3.0"
 
-    result = requests.post(url, data=data, headers={'Content Type': 'application/json'})
+    requests.post(url, data=data, headers={'Content Type': 'application/json'})
 
+#spotify stuff with a z at the end is for my account
+userz = cfg.SPOTIFY_USERz
+playlist = cfg.SPOTIFY_PLAYLIST
+history = cfg.SPOTIFY_PLAYLIST2
+CACHEz = '.zambamoauthcache'
+oauthz = spotipy.oauth2.SpotifyOAuth(cfg.SPOTIFY_ID, cfg.SPOTIFY_SECRET,
+                                    cfg.SPOTIFY_REDIRECT,
+                                    scope='playlist-modify-public playlist-modify-private',
+                                    cache_path=CACHEz)
+
+tokenz = oauthz.get_cached_token()
+if tokenz:
+    spz = spotipy.Spotify(auth=tokenz['access_token'])
+else:
+    print("Can't get token for ", user_config['username'])
+
+#this is for emongg's account
+user = cfg.SPOTIFY_USER
+CACHE = '.emonggoauthcache'
+oauth = spotipy.oauth2.SpotifyOAuth(cfg.SPOTIFY_ID, cfg.SPOTIFY_SECRET,
+                                    cfg.SPOTIFY_REDIRECT,
+                                    scope='playlist-modify-public playlist-modify-private',
+                                    cache_path=CACHE)
+token = oauth.get_cached_token()
+if token:
+    sp = spotipy.Spotify(auth=token['access_token'])
+else:
+    print ("Can't get token for ", user_config['username'])
 
 def song_requests(sock, message, url):
     global userz, playlist, spz, tokenz, oauthz, history
@@ -381,20 +334,22 @@ def song_requests(sock, message, url):
                 chat(sock, "{} song added to playlist".format(name), cfg.CHAN)
                 content = 'Request added to playlist: \"' + m +'\"'
                 discord_message(name, content, cfg.URL)
+    return True
 
-
+time_song = time.time()
 def now_playing(sock):
-    global playlist, sp, token, oauth
+    global playlist, sp, token, oauth, time_song
     expired = spotipy.oauth2.is_token_expired(token)
     if expired:
         token = oauth.refresh_access_token(token['refresh_token'])
         sp = spotipy.Spotify(auth=token['access_token'])
         logger.info('token refreshed?')
+    if time.time() - time_song < 20:
+        return False
     data = sp.current_user_playing_track()
     if data == None:
         message = '/me The song is unknown, just like our futures pepeJAM'
-        chat(sock, message, cfg.CHAN)
-        return
+        return chat(sock, message, cfg.CHAN)
     name = data['item']['name']
     artists = data['item']['artists']
     message = name + " by "
@@ -405,7 +360,8 @@ def now_playing(sock):
         for artist in artists:
             combined += artist['name'] + " & "
         message += combined[:-3]
-    chat(sock,"/me " + message, cfg.CHAN)
+    time_song = time.time()
+    return chat(sock,"/me " + message, cfg.CHAN)
 
 
 def clear_playlist(sock, message):
@@ -424,11 +380,13 @@ def clear_playlist(sock, message):
         spz.user_playlist_remove_all_occurrences_of_tracks(userz, playlist,
                                                           track_list)
         logger.info('playlist cleared')
-        chat(sock, "Playlist cleared", cfg.CHAN)
+        return chat(sock, "Playlist cleared", cfg.CHAN)
+    else:
+        return False
 
-
+time_queue = time.time()
 def queue_length(sock, message):
-    global spz, tokenz, oauthz, userz, playlist
+    global spz, tokenz, oauthz, userz, playlist, time_queue
     expired = spotipy.oauth2.is_token_expired(tokenz)
     try:
         expired = spotipy.oauth2.is_token_expired(tokenz)
@@ -442,39 +400,140 @@ def queue_length(sock, message):
             return
         spz = spotipy.Spotify(auth=tokenz['access_token'])
         logger.info('token refreshed?')
+    if time.time() - time_queue < 20:
+        return False
     tracks = len(spz.playlist_tracks(playlist)['items'])
-    chat(sock, "There are {} songs in queue".format(tracks), cfg.CHAN)
+    time_queue = time.time()
+    return chat(sock, "There are {} songs in queue".format(tracks), cfg.CHAN)
 
+
+#Handle each message type found by message_dict_maker
+
+#message type PING
+def ping(sock):
+    sock.send("PONG :tmi.twitch.tv\r\n".encode("utf-8"))
+    return True
+
+#message type WHISPER
+def whisper_response(response, sock):
+    name = response['display-name']
+    message = '/w {} This is a bot account, whisper another mod'.format(name)
+    return chat(sock, message, cfg.CHAN)
+
+#message type USERNOTICE
+def sub(sock, subresponse, giftdict):
+    '''
+    sock to send message
+    response is the received message
+    giftdict is the dictionary of gifted sub counts
+    respond to new subs and resubs
+    log number gifted for gift subs
+    user id logged in case of name change
+    '''
+    message = subresponse
+    msgid = message['msg-id']
+    name = message['display-name']
+    userid = message['user-id']
+    if msgid == "sub":
+        newresponses = ["Thanks for the sub {}, and welcome! emongC \r\n".format(name),
+                        "Welcome {}! emongA \r\n".format(name),
+                        "Welcome Detective {} emongL \r\n".format(name),
+                        "Thanks for the sub {} emongGood".format(name),
+                        "Welcome {}, and be sure to smile emongSmile".format(name),
+                        "Welcome {} emongCool".format(name)
+                        ]
+        reply = random.choice(newresponses)
+        logger.info("new sub")
+        return chat(sock, reply,cfg.CHAN)
+    elif msgid == "resub":
+        sublength = message['msg-param-cumulative-months']
+        resubresponses = ["Welcome back {}! emongC\r\n".format(name),
+                          "Thank you for your continued work Detective {} emongL \r\n".format(name),
+                          "Here is your complimentary mustache from your local mustache salesman {} emongB \r\n".format(name),
+                          "Thanks for the resub {} emongGood".format(name),
+                          "Keep on smiling {} emongSmile".format(name),
+                          "Welcome back {} emongCool".format(name)
+                          ]
+        if int(sublength) >= 24:
+            resubresponses.append("Thanks for cancelling your sub {} emongPranked".format(name))
+        elif int(sublength) >= 36:
+            resubresponses.append("That's almost 2 years {} emongPotato").format(name)
+        reply = random.choice(resubresponses)
+        logger.info("resub")
+        return chat(sock, reply ,cfg.CHAN)
+    elif name == "AnAnonymousGifter":
+        return False
+    elif msgid == 'submysterygift':
+        giftcount = int(message['msg-param-sender-count'])
+        giftdict[userid] = giftcount
+        with open("giftcounts.txt","w") as f:
+            f.write(json.dumps(giftdict))
+        logger.info("mystery gift")
+    elif msgid == 'subgift':
+        giftcount = int(message['msg-param-sender-count'])
+        if giftcount == 0:
+            #this is to avoid counting for a mass gift
+            #could probably just add an "and" to the elif
+            return False
+        else:
+            giftdict[userid] = giftcount
+            with open("giftcounts.txt","w") as f:
+                f.write(json.dumps(giftdict))
+            logger.info("targeted gift")
+    return False
+
+#message type RECONNECT
+def reconnect(HOST, PORT, PASS, NICK, CHAN):
+    global s
+    connect(HOST, PORT)
+    login(s, PASS, NICK, CHAN)
+
+#message type HOSTTARGET
+def host(sock, message):
+    target = message['host target']
+    if target == '-':
+        return False
+    else:
+        return chat(s, "If the host broke on your end, here is the link: https://twitch.tv/{}".format(target), cfg.CHAN)
+
+#message type PRIVMSG
+def PRIVMSG(mtesting):
+    if 'custom-reward-id' in messagedict.keys():
+        if messagedict['custom-reward-id'] == '61a06c53-8beb-4592-930b-0e56f6ae0e89':
+            mtesting = song_requests(s, messagedict, cfg.URL)
+    elif messagedict['actual message'].startswith('!'):
+        word_list = messagedict['actual message'].split(" ")
+        command = word_list[0]
+        leaderb = leaderboard(giftdict)
+        command_switch = {
+                '!roulette': lambda : roulette(messagedict, s),
+                '!clearplaylist': lambda : clear_playlist(s, messagedict),
+                '!srqueue': lambda : queue_length(s, messagedict),
+                '!giftrank': lambda : countcommand(s, messagedict, leaderb, giftdict),
+                '!giftcount': lambda : countcommand(s, messagedict, leaderb, giftdict),
+                '!song': lambda : now_playing(s)
+            }
+        mtesting = command_switch.get(command, lambda : False)()
+    return mtesting
+
+#message type: userstate, clearchat, clearmsg, notice, roomstate
+def the_rest(): return False
+
+
+message_switch = {
+            "WHISPER": lambda : whisper_response(messagedict, s),
+            "PRIVMSG": lambda : PRIVMSG(mtesting),
+            "USERNOTICE": lambda : sub(s, messagedict, giftdict),
+            "USERSTATE": lambda : the_rest(),
+            "CLEARCHAT": lambda : the_rest(),
+            "CLEARMSG": lambda : the_rest(),
+            "HOSTTARGET": lambda : host(s, messagedict),
+            "NOTICE": lambda : the_rest(),
+            "ROOMSTATE": lambda : the_rest(),
+            "PING": lambda : ping(s)
+        }
 
 if __name__ == "__main__":
-    #spotify stuff with a z at the end is for my account
-    userz = cfg.SPOTIFY_USERz
-    playlist = cfg.SPOTIFY_PLAYLIST
-    history = cfg.SPOTIFY_PLAYLIST2
-    CACHEz = '.zambamoauthcache'
-    oauthz = spotipy.oauth2.SpotifyOAuth(cfg.SPOTIFY_ID, cfg.SPOTIFY_SECRET,
-                                        cfg.SPOTIFY_REDIRECT,
-                                        scope='playlist-modify-public playlist-modify-private',
-                                        cache_path=CACHEz)
-
-    tokenz = oauthz.get_cached_token()
-    if tokenz:
-        spz = spotipy.Spotify(auth=tokenz['access_token'])
-    else:
-        print("Can't get token for ", user_config['username'])
-
-    #this is for emongg's account
-    user = cfg.SPOTIFY_USER
-    CACHE = '.emonggoauthcache'
-    oauth = spotipy.oauth2.SpotifyOAuth(cfg.SPOTIFY_ID, cfg.SPOTIFY_SECRET,
-                                        cfg.SPOTIFY_REDIRECT,
-                                        scope='playlist-modify-public playlist-modify-private',
-                                        cache_path=CACHE)
-    token = oauth.get_cached_token()
-    if token:
-        sp = spotipy.Spotify(auth=token['access_token'])
-    else:
-        print ("Can't get token for ", user_config['username'])
     with open("giftcounts.txt") as f:
         giftdict = eval(f.read())
 
@@ -489,87 +548,22 @@ if __name__ == "__main__":
     connect(cfg.HOST, cfg.PORT)
     login(s, cfg.PASS, cfg.NICK, cfg.CHAN)
     chan = cfg.CHAN[1:]
-
-    #create cooldown timers for commands
-    t = time.time()
-    time_roulette, time_queue, time_song = time.time(), time.time(), time.time()
-
-    #this is for roulette command since it's not guaranteed to be put on cooldown
-    timecheck = False
     while True:
-        mtesting = False
-        #mtesting returns True if the bot sends a message
-        #want to avoid putting the bot to sleep if no message sent
         try:
             response = s.recv(4096).decode("utf-8")
         except UnicodeDecodeError:
             continue
         if response == "":
             continue
-        ping_test = ping(s, response) #not sure why I needed this to say True
-
-        #messages start getting packed together when chat is fast so we split
-        try:
-            messagelist = splitmessages(response)
-        except:
-            #there are still some things that break and I don't know why
-            logger.exception(response, exc_info = True)
-            continue
-
-        try:
-            for message in messagelist:
-                if "USERSTATE" in message:
-                    #this tag throws an error for dict_maker below
-                    continue
-                try:
-                    messagedict = message_dict_maker(message)
-                except:
-                    #there are still some things I haven't worked out for this yet
-                    logger.exception(message, exc_info = True)
-                    continue
-                if "USERNOTICE" == messagedict['message type']:
-                    #usernotice is for stuff like subs
-                    mtesting = sub(s, messagedict, giftdict)
-                elif "PRIVMSG" == messagedict['message type']:
-                    #privmsg is normal chat messages
-                    mtesting = word_filter(s, messagedict, banlist)
-                    if 'custom-reward-id' in messagedict.keys():
-                        #eventually there will be more things to do here
-                        if messagedict['custom-reward-id'] == 'dc52dc53-f7a1-4229-afda-a404a2e37c5f':
-                            song_requests(s, messagedict, cfg.URL)
-                            mtesting = True
-                    elif messagedict['actual message'].startswith('!'):
-                        #is there a command
-                        word_list = messagedict['actual message'][:-2].split(" ", 1)
-                        #currently only need to split the first word from the rest
-                        command = word_list[0].lower()
-                        if command == '!roulette' and time.time() - time_roulette > 30:
-                            #check if the command is !roulette and if it's been 30 seconds
-                            timecheck = roulette(messagedict, s)
-                            mtesting = True
-                            if timecheck:
-                                time_roulette = time.time()
-                        elif command == '!clearplaylist':
-                            clear_playlist(s, messagedict)
-                            mtesting = True
-                        elif command == '!srqueue' and time.time() - time_queue > 20:
-                            #check if the command is !srqueue and if it's been 20 seconds
-                            queue_length(s, messagedict)
-                            time_queue = time.time()
-                            mtesting = True
-                        elif command == '!giftrank' or command == '!giftcount':
-                            leaderb = leaderboard(giftdict)
-                            countcommand(s, messagedict, leaderb, giftdict)
-                            mtesting = True
-                        elif command == '!song' and time.time() - time_song > 30:
-                            #check if the command is !song and if it's been 30 seconds
-                            now_playing(s)
-                            time_song = time.time()
-                            mtesting = True
-                elif "WHISPER" == messagedict['message type']:
-                    mtesting = whisper_response(messagedict, s)
-        except:
-            logger.info("error", response)
-        if mtesting:
-            #bot sent a message so must sleep emongZ
-            time.sleep(1/cfg.RATE)
+        messagelist = splitmessages(response)
+        for message in messagelist:
+            mtesting = False
+            timet = time.time()
+            try:
+                messagedict = message_dict_maker(message)
+            except:
+                logging.exception(response)
+                continue
+            mtesting = message_switch.get(messagedict['message type'], lambda : False)()
+            if mtesting:
+                time.sleep(1/cfg.RATE)
