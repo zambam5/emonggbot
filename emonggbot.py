@@ -9,10 +9,11 @@ import spotipy
 import spotipy.util as util
 from datetime import datetime
 
-
+dt = datetime.now().strftime("%Y-%m-%d")
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-handler = logging.FileHandler('emonggbot.log', mode='w')
+filename = 'emonggbot' + dt + '.log'
+handler = logging.FileHandler(filename, mode='w')
 formatter = logging.Formatter('''%(asctime)s -
                               %(name)s - %(levelname)s - %(message)s''')
 handler.setFormatter(formatter)
@@ -50,6 +51,21 @@ def login(sock, PASS, NICK, CHAN):
     time.sleep(0.5)
     test = sock.recv(1024).decode("utf-8")
     logger.info(test)
+
+
+def exponential_backoff():
+    global s
+    count = 1
+    while True:
+        try:
+            connect(cfg.HOST, cfg.PORT)
+            login(s, cfg.PASS, cfg.NICK, cfg.CHAN)
+            return True
+        except socket.error:
+            time.sleep(count)
+            count = count*2
+
+
 
 
 def chat(sock, msg, CHAN):
@@ -223,7 +239,7 @@ def remove_preview(message):
 
 
 def extract_link(message):
-    match = re.search("(?P<url>open.spotify.com[^\\s]+)", message)
+    match = re.search(r"(?P<url>open.spotify.com[^\s]+)", message)
     if match is not None:
         return match.group("url")
     else:
@@ -268,8 +284,10 @@ if token:
 else:
     print ("Can't get token for ", user_config['username'])
 
+
+screwup = dict()
 def song_requests(sock, message, url):
-    global userz, playlist, spz, tokenz, oauthz, history
+    global userz, playlist, spz, tokenz, oauthz, history, screwup
     try:
         expired = spotipy.oauth2.is_token_expired(tokenz)
     except spotipy.client.SpotifyException:
@@ -285,21 +303,24 @@ def song_requests(sock, message, url):
     m = message['actual message']
     song = extract_link(m)
     if song == None:
-        chat(sock, "{}, be sure your link is for open.spotify.com".format(name), cfg.CHAN)
+        chat(sock, "{}, be sure your link is for open.spotify.com. You can try a differnt link in the next 5 minutes using the !requeue command".format(name), cfg.CHAN)
         content = 'Request did not include a spotify link: \"' + m +'\"'
         discord_message(name, content, cfg.URL)
+        screwup[name] = (True, time.time())
     elif "track" not in song:
-        chat(sock, "{}, you have to link to a Spotify song for song requests".format(name), cfg.CHAN)
+        chat(sock, "{}, be sure the Spotify link includes \"track\". You can try a different link in the next 5 minutes using the !requeue command".format(name), cfg.CHAN)
         content = 'Request was not a song link: \"' + m +'\"'
         discord_message(name, content, cfg.URL)
+        screwup[name] = (True, time.time())
     else:
         songl = [song]
         try:
             track1 = spz.track(song)
         except spotipy.client.SpotifyException:
-            chat(sock, "{}, that link is dead".format(name), cfg.CHAN)
-            content = 'Song link is dead \"' + m + '\"'
+            chat(sock, "{}, that link is dead or returned an error. You can try a different link in the next 5 minutes using the !requeue command. If the error happens again notify a mod.".format(name), cfg.CHAN)
+            content = 'Song link is dead or returned an error \"' + m + '\"'
             discord_message(name, content, cfg.URL)
+            screwup[name] = (True, time.time())
         track = track1['id']
         #features = sp.audio_features(songl)[0]
         #length = features['duration_ms']
@@ -307,16 +328,18 @@ def song_requests(sock, message, url):
         tracks = spz.playlist_tracks(playlist)['items']
         '''if 'US' not in track1['available_markets']:
             chat(sock, "{}, sorry that song is not available in the US".format(name), cfg.CHAN)'''
-        if length > 360000:
-            chat(sock, "{}, we have a 6 minute limit on songs".format(name), cfg.CHAN)
+        if length > 300000:
+            chat(sock, "{}, we have a 5 minute limit on songs. You can try a different song in the next 5 minutes using the !requeue command.".format(name), cfg.CHAN)
             content = 'Request is too long: \"' + m +'\"'
             discord_message(name, content, cfg.URL)
+            screwup[name] = (True, time.time())
         elif len(tracks) < 1:
             spz.user_playlist_add_tracks(userz, playlist, songl, position=None)
             spz.user_playlist_add_tracks(userz, history, songl, position=None)
             chat(sock, "{}, song added to playlist".format(name), cfg.CHAN)
             content = 'Request added to playlist: \"' + m +'\"'
             discord_message(name, content, cfg.URL)
+            screwup[name] = (False, time.time())
         else:
             for item in tracks[-11:]:
                 check = item['track']['id']
@@ -325,16 +348,19 @@ def song_requests(sock, message, url):
                 else:
                     duplicate = False
             if duplicate:
-                chat(sock, "{}, sorry that song is already in queue!".format(name), cfg.CHAN)
+                chat(sock, "{}, sorry that song is already in queue! You can try a different song in the next 5 minutes using the !requeue command.".format(name), cfg.CHAN)
                 content = 'Request is a duplicate: \"' + m +'\"'
                 discord_message(name, content, cfg.URL)
+                screwup[name] = (True, time.time())
             else:
                 spz.user_playlist_add_tracks(userz, playlist, songl, position=None)
                 spz.user_playlist_add_tracks(userz, history, songl, position=None)
                 chat(sock, "{} song added to playlist".format(name), cfg.CHAN)
                 content = 'Request added to playlist: \"' + m +'\"'
                 discord_message(name, content, cfg.URL)
+                screwup[name] = (False, time.time())
     return True
+
 
 time_song = time.time()
 def now_playing(sock):
@@ -372,12 +398,11 @@ def clear_playlist(sock, message):
         spz = spotipy.Spotify(auth=tokenz['access_token'])
         logger.info('token refreshed?')
     if message['mod'] == '1' or 'broadcaster' in message['badges']:
-        #believe it or not, twitch does not consider broadcasters mods
         tracks = spz.playlist_tracks(playlist)['items']
         track_list = []
         for item in tracks:
-            track_list.append(item['track']['id'])
-        spz.user_playlist_remove_all_occurrences_of_tracks(userz, playlist,
+            track_list.append(item['external_urls']['external_urls']['linked_from']['uri'])
+        spz.user_playlist_remove_all_occurrences_of_tracks(user, playlist,
                                                           track_list)
         logger.info('playlist cleared')
         return chat(sock, "Playlist cleared", cfg.CHAN)
@@ -407,11 +432,23 @@ def queue_length(sock, message):
     return chat(sock, "There are {} songs in queue".format(tracks), cfg.CHAN)
 
 
+def requeue(sock, message):
+    name = message['display-name']
+    if name in screwup.keys():
+        if screwup[name][0] and time.time() - screwup[name][1] < 301:
+            return song_requests(sock, message, cfg.URL)
+        elif time.time() - screwup[name][1] >= 301:
+            del screwup[name]
+            return chat(sock, f"{name}, sorry it's been more than 5 minutes.", cfg.CHAN)
+    else:
+        return False
+
 #Handle each message type found by message_dict_maker
 
 #message type PING
 def ping(sock):
     sock.send("PONG :tmi.twitch.tv\r\n".encode("utf-8"))
+    logger.info("PING")
     return True
 
 #message type WHISPER
@@ -499,7 +536,7 @@ def host(sock, message):
 #message type PRIVMSG
 def PRIVMSG(mtesting):
     if 'custom-reward-id' in messagedict.keys():
-        if messagedict['custom-reward-id'] == '61a06c53-8beb-4592-930b-0e56f6ae0e89':
+        if messagedict['custom-reward-id'] == 'dc52dc53-f7a1-4229-afda-a404a2e37c5f':
             mtesting = song_requests(s, messagedict, cfg.URL)
     elif messagedict['actual message'].startswith('!'):
         word_list = messagedict['actual message'].split(" ")
@@ -511,7 +548,8 @@ def PRIVMSG(mtesting):
                 '!srqueue': lambda : queue_length(s, messagedict),
                 '!giftrank': lambda : countcommand(s, messagedict, leaderb, giftdict),
                 '!giftcount': lambda : countcommand(s, messagedict, leaderb, giftdict),
-                '!song': lambda : now_playing(s)
+                '!song': lambda : now_playing(s),
+                '!requeue': lambda : requeue(s, messagedict)
             }
         mtesting = command_switch.get(command, lambda : False)()
     return mtesting
@@ -551,7 +589,9 @@ if __name__ == "__main__":
     while True:
         try:
             response = s.recv(4096).decode("utf-8")
-        except UnicodeDecodeError:
+        except:
+            #exponential_backoff()
+            logging.exception("error", exc_info=True)
             continue
         if response == "":
             continue
