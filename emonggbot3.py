@@ -38,7 +38,7 @@ def connect(HOST, PORT):
 
 def login(sock, PASS, NICK, CHAN):
     sock.send(f"PASS {PASS}\r\n".encode("utf-8"))
-    sock.send(f"NICK {NIC}\r\n".encode("utf-8"))
+    sock.send(f"NICK {NICK}\r\n".encode("utf-8"))
     test = sock.recv(1024).decode("utf-8")
     logger.info(test)
 
