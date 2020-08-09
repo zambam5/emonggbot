@@ -1,5 +1,6 @@
 Added a v2 folder which is my second version of the bot. Still fleshing out ideas for it.
-
+For v2, I used the regex code written here to update my message process
+https://github.com/martmists/asynctwitch/blob/master/asynctwitch/bots.py
 
 The cfgai file contains all account information you need to run this.
 For the PASS, I used https://twitchapps.com/tmi/ to generate the token
