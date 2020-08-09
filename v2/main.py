@@ -15,4 +15,7 @@ while True:
     else:
         for message in dictlist:
             if message['message type'] == 'PRIVMSG':
-                stattracker.process_message(message)
+                if message['actual message'] == None:
+                    continue
+                else:
+                    stattracker.process_message(message)

@@ -1,6 +1,7 @@
 import socket
 import logging
 import time
+import re
 from datetime import datetime
 
 dt = datetime.now().strftime("%Y-%m-%d")
@@ -21,6 +22,20 @@ class Twitch:
         self.NICK = NICK
         self.CHAN = CHAN
         self.s = None
+
+        self.regex = {
+            "data": re.compile(
+                r"^(?:@(?P<tags>\S+)\s)?:(?P<data>\S+)(?:\s)"
+                r"(?P<action>[A-Z]+)(?:\s#)(?P<channel>\S+)"
+                r"(?:\s(?::)?(?P<content>.+))?"),
+            "ping": re.compile(r"PING (?P<content>.+)"),
+            "author": re.compile(
+                r"(?P<author>[a-zA-Z0-9_]+)!(?P=author)"
+                r"@(?P=author).tmi.twitch.tv"),
+            "mode": re.compile(r"(?P<mode>[\+\-])o (?P<user>.+)"),
+            "host": re.compile(
+                r"(?P<channel>[a-zA-Z0-9_]+) "
+                r"(?P<count>[0-9\-]+)")}
     
 
     def connect(self, HOST, PORT):
@@ -103,56 +118,51 @@ class Twitch:
 
 
     def process_message(self, message):
-        '''
-        take message from splitmessages, get dict
-        this should be improved
-        '''
-        messagedict = dict()
+        messagedict = {}
         if message.startswith('PING'):
             messagedict['message type'] = 'PING'
             messagedict['time'] = datetime.now()
             return messagedict
-        elif 'user-type=' in message:
-            messagelist1 = message.split('user-type=')
-            messagelist = messagelist1[0].split(';')
-            for item in messagelist:
-                items = item.split('=')
-                try:
-                    messagedict[items[0]] = items[1]
-                except IndexError:
-                    messagedict[items[0]] = ''
-            if "WHISPER" in messagelist1[1]:
-                print("whisper")
-                messagedict['message type'] = "WHISPER"
-            elif "PRIVMSG" in messagelist1[1]:
-                messagedict['message type'] = "PRIVMSG"
-                firstsplit = messagelist1[1].split(" " + self.CHAN + " :")
-                messagedict['actual message'] = firstsplit[1].strip(':')
-            elif "USERNOTICE" in messagelist1[1]:
-                messagedict['message type'] = "USERNOTICE"
-            elif "USERSTATE" in messagelist1[1]:
-                messagedict['message type'] = "USERSTATE"
-            return messagedict
-        if message.startswith('badge'):
-            return False
-        messagelist1 = message.split(' ')
-        print(messagelist1)
-        if messagelist1[1] == "HOSTTARGET":
-            messagedict['message type'] = 'HOSTTARGET'
-            messagedict['host target'] = messagelist1[3].strip(':')
-        elif messagelist1[1] == "RECONNECT":
-            messagedict['message type'] = 'RECONNECT'
-        elif messagelist1[2] == "NOTICE":
-            messagedict['message type'] = "NOTICE"
-        elif messagelist1[2] == "CLEARCHAT":
-            messagedict['message type'] = "CLEARCHAT"
-        elif messagelist1[2] == "ROOMSTATE":
-            messagedict['message type'] = "ROOMSTATE"
-        elif messagelist1[2] == "CLEARMSG":
-            print('here')
-            messagedict['message type'] = "CLEARMSG"
+        else:
+            m = self.regex['data'].match(message)
+            try:
+                tags = m.group("tags")
+                for tag in tags.split(';'):
+                    t = tag.split('=')
+                    messagedict[t[0]] = t[1]
+            except:
+                tags = None
+            
+            try:
+                action = m.group('action')
+                if action == 'HOSTTARGET':
+                    hostm = self.regex['host'].match(message)
+                    hchannel = hostm.group("channel")
+                    viewers = hostm.group('count')
+                    messagedict['host target'] = hchannel
+                    messagedict['host views'] = viewers
+                messagedict['message type'] = action
+            except:
+                action = None
+            
+            try:
+                data = m.group('data')
+                messagedict['data'] = data
+            except:
+                data = None
+            
+            try:
+                content = m.group('content')
+                messagedict['actual message'] = content
+            except:
+                content = None
+            
+            try:
+                channel = m.group('channel')
+                messagedict['channel'] = channel
+            except:
+                channel = None
         return messagedict
-    
 
     def recv_message(self):
         try:

@@ -10,33 +10,33 @@ logger = logging.getLogger(__name__)
 
 
 class EmoteStatTracker:
+    today = datetime.today()
+    if os.path.isfile('./stats/' + today.strftime("%Y-%m-%d") +'.json'):
+        with open('./stats/' + today.strftime("%Y-%m-%d") +'.json', 'r') as f:
+            container = eval(f.read())
+            ffz_stats = container['ffz']
+            print(ffz_stats)
+            bttv_stats = container['bttv']
+            sub_stats = container['sub']
+            f.close()
+    else:
+        ffz_stats = dict()
+        bttv_stats = dict()
+        sub_stats = dict()
+    stats = {'ffz': ffz_stats, 'bttv': bttv_stats, 'sub': sub_stats}
+    emote_switch = dict()
+    command_switch = dict()
+    word = ""
 
     def __init__(self, channel, ID):
-        self.today = datetime.today()
-        if os.path.isfile('./stats/' + self.today.strftime("%Y-%m-%d") +'.json'):
-            with open('./stats/' + self.today.strftime("%Y-%m-%d") +'.json', 'r') as f:
-                container = eval(f.read())
-                self.ffz_stats = container['ffz']
-                self.bttv_stats = container['bttv']
-                self.sub_stats = container['sub']
-                f.close()
-        else:
-            self.ffz_stats = dict()
-            self.bttv_stats = dict()
-            self.sub_stats = dict()
-        self.stats = {'ffz': self.ffz_stats, 'bttv': self.bttv_stats, 'sub': self.sub_stats}
-        self.emote_switch = dict()
-        self.command_switch = dict()
         self.channel = channel
         self.id = ID
-        self.word = ""
-    
+
 
     def ffz(self):
-        self.ffz_stats[self.word] += 1
-        self.stats = {'ffz': self.ffz_stats, 'bttv': self.bttv_stats, 'sub': self.sub_stats}
-        with open('./stats/' + self.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
-            f.write(json.dumps(self.stats))
+        EmoteStatTracker.ffz_stats[EmoteStatTracker.word] += 1
+        with open('./stats/' + EmoteStatTracker.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
+            f.write(json.dumps(EmoteStatTracker.stats))
             f.close
     
 
@@ -54,24 +54,25 @@ class EmoteStatTracker:
     def ffz_update(self):
         emotes = self.ffz_api()
         for emote in emotes:
-            if emote not in self.ffz_stats.keys():
-                self.ffz_stats[emote] = 0
-                self.emote_switch[emote] = self.ffz
+            if emote not in EmoteStatTracker.ffz_stats.keys():
+                EmoteStatTracker.ffz_stats[emote] = 0
+                EmoteStatTracker.emote_switch[emote] = self.ffz
+            elif emote not in EmoteStatTracker.emote_switch.keys():
+                EmoteStatTracker.emote_switch[emote] = self.ffz
         old_emotes = []
-        for emote in self.ffz_stats.keys():
+        for emote in EmoteStatTracker.ffz_stats.keys():
             if emote not in emotes:
                 old_emotes.append(emote)
-                del self.ffz_stats[emote]
-                del self.emote_switch[emote]
+                del EmoteStatTracker.ffz_stats[emote]
+                del EmoteStatTracker.emote_switch[emote]
         removed_emotes = ' '.join(old_emotes)
         logger.info("Removed ffz emotes " + removed_emotes)
     
 
     def bttv(self):
-        self.bttv_stats[self.word] += 1
-        self.stats = {'ffz': self.ffz_stats, 'bttv': self.bttv_stats, 'sub': self.sub_stats}
-        with open('./stats/' + self.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
-            f.write(json.dumps(self.stats))
+        EmoteStatTracker.bttv_stats[EmoteStatTracker.word] += 1
+        with open('./stats/' + EmoteStatTracker.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
+            f.write(json.dumps(EmoteStatTracker.stats))
             f.close
     
 
@@ -89,24 +90,25 @@ class EmoteStatTracker:
     def bttv_update(self):
         emotes = self.bttv_api()
         for emote in emotes:
-            if emote not in self.bttv_stats.keys():
-                self.bttv_stats[emote] = 0
-                self.emote_switch[str(emote)] = self.bttv
+            if emote not in EmoteStatTracker.bttv_stats.keys():
+                EmoteStatTracker.bttv_stats[emote] = 0
+                EmoteStatTracker.emote_switch[str(emote)] = self.bttv
+            elif emote not in EmoteStatTracker.emote_switch.keys():
+                EmoteStatTracker.emote_switch[emote] = self.bttv
         old_emotes = []
-        for emote in self.bttv_stats.keys():
+        for emote in EmoteStatTracker.bttv_stats.keys():
             if emote not in emotes:
                 old_emotes.append(emote)
-                del self.bttv_stats[emote]
-                del self.emote_switch[emote]
+                del EmoteStatTracker.bttv_stats[emote]
+                del EmoteStatTracker.emote_switch[emote]
         removed_emotes = ' '.join(old_emotes)
         logger.info('Removed bttv emotes ' + removed_emotes)
     
     
     def sub(self):
-        self.sub_stats[self.word] += 1
-        self.stats = {'ffz': self.ffz_stats, 'bttv': self.bttv_stats, 'sub': self.sub_stats}
-        with open('./stats/' + self.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
-            f.write(json.dumps(self.stats))
+        EmoteStatTracker.sub_stats[EmoteStatTracker.word] += 1
+        with open('./stats/' + EmoteStatTracker.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
+            f.write(json.dumps(EmoteStatTracker.stats))
             f.close
     
 
@@ -124,33 +126,38 @@ class EmoteStatTracker:
     def sub_update(self):
         emotes = self.twitch_api()
         for emote in emotes:
-            if emote not in self.sub_stats.keys():
-                self.sub_stats[emote] = 0
-                self.emote_switch[emote] = self.sub
+            if emote not in EmoteStatTracker.sub_stats.keys():
+                EmoteStatTracker.sub_stats[emote] = 0
+                EmoteStatTracker.emote_switch[emote] = self.sub
+            elif emote not in EmoteStatTracker.emote_switch.keys():
+                EmoteStatTracker.emote_switch[emote] = self.sub
         old_emotes = []
-        for emote in self.sub_stats.keys():
+        for emote in EmoteStatTracker.sub_stats.keys():
             if emote not in emotes:
                 old_emotes.append(emote)
-                del self.sub_stats[emote]
-                del self.emote_switch[emote]
+                del EmoteStatTracker.sub_stats[emote]
+                del EmoteStatTracker.emote_switch[emote]
     
 
     def start(self):
         self.sub_update()
         self.bttv_update()
         self.ffz_update()
-        self.command_switch['!updateffz'] = self.ffz_update
-        self.command_switch['!updatebttv'] = self.bttv_update
-        self.command_switch['!updatesub'] = self.sub_update
+        EmoteStatTracker.command_switch['!updateffz'] = self.ffz_update
+        EmoteStatTracker.command_switch['!updatebttv'] = self.bttv_update
+        EmoteStatTracker.command_switch['!updatesub'] = self.sub_update
+        print(EmoteStatTracker.emote_switch)
     
 
     def new_day(self):
-        for emote in self.ffz_stats.keys():
-            self.ffz_stats[emote] = 0
-        for emote in self.bttv_stats.keys():
-            self.bttv_stats[emote] = 0
-        for emote in self.sub_stats.keys():
-            self.sub_stats[emote] = 0
+        logger.info('New day, clearing stats')
+        print(EmoteStatTracker.today.strftime("%Y-%m-%d"))
+        for emote in EmoteStatTracker.ffz_stats.keys():
+            EmoteStatTracker.ffz_stats[emote] = 0
+        for emote in EmoteStatTracker.bttv_stats.keys():
+            EmoteStatTracker.bttv_stats[emote] = 0
+        for emote in EmoteStatTracker.sub_stats.keys():
+            EmoteStatTracker.sub_stats[emote] = 0
 
 
     def process_message(self, message):
@@ -161,13 +168,12 @@ class EmoteStatTracker:
             logger.info('bad message')
             return
         today = datetime.today()
-        if today != self.today:
-            self.today = today
+        if EmoteStatTracker.today.day != today.day:
+            EmoteStatTracker.today = datetime.today()
             self.new_day()
         word_list = message['actual message'].rstrip().split(" ")
         if message['display-name'] == 'zambam5':
-            self.command_switch.get(word_list[0], lambda : False)()
+            EmoteStatTracker.command_switch.get(word_list[0], lambda : False)()
         for word in word_list:
-            
-            self.word = word
-            self.emote_switch.get(word, lambda : False)()
+            EmoteStatTracker.word = word
+            EmoteStatTracker.emote_switch.get(EmoteStatTracker.word, lambda : False)()
