@@ -10,12 +10,21 @@ logger = logging.getLogger(__name__)
 
 
 class EmoteStatTracker:
-    today = datetime.today()
-    if os.path.isfile('./stats/' + today.strftime("%Y-%m-%d") +'.json'):
-        with open('./stats/' + today.strftime("%Y-%m-%d") +'.json', 'r') as f:
+    folderpath = ''
+    def __init__(self, channel, ID):
+        self.channel = channel
+        self.id = ID
+        EmoteStatTracker.folderpath = f'./logs/{self.channel}/stats/'
+        directory = os.path.dirname(EmoteStatTracker.folderpath)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+    
+
+    today = datetime.today()    
+    if os.path.isfile(folderpath + today.strftime("%Y-%m-%d") +'.json'):
+        with open(folderpath + today.strftime("%Y-%m-%d") +'.json', 'r') as f:
             container = eval(f.read())
             ffz_stats = container['ffz']
-            print(ffz_stats)
             bttv_stats = container['bttv']
             sub_stats = container['sub']
             f.close()
@@ -28,14 +37,16 @@ class EmoteStatTracker:
     command_switch = dict()
     word = ""
 
-    def __init__(self, channel, ID):
-        self.channel = channel
-        self.id = ID
-
-
     def ffz(self):
         EmoteStatTracker.ffz_stats[EmoteStatTracker.word] += 1
-        with open('./stats/' + EmoteStatTracker.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
+        month = EmoteStatTracker.today.strftime("%B %Y")
+        date = EmoteStatTracker.today.strftime("%Y-%m-%d")
+        filename = f'{date}.json'
+        folderpath = f'{EmoteStatTracker.folderpath}{month}/'
+        directory = os.path.dirname(folderpath)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        with open(folderpath + filename, 'w') as f:
             f.write(json.dumps(EmoteStatTracker.stats))
             f.close
     
@@ -60,18 +71,29 @@ class EmoteStatTracker:
             elif emote not in EmoteStatTracker.emote_switch.keys():
                 EmoteStatTracker.emote_switch[emote] = self.ffz
         old_emotes = []
+        current_emotes = []
         for emote in EmoteStatTracker.ffz_stats.keys():
+            current_emotes.append(emote)
+        for emote in current_emotes:
             if emote not in emotes:
                 old_emotes.append(emote)
                 del EmoteStatTracker.ffz_stats[emote]
                 del EmoteStatTracker.emote_switch[emote]
         removed_emotes = ' '.join(old_emotes)
         logger.info("Removed ffz emotes " + removed_emotes)
+        return removed_emotes
     
 
     def bttv(self):
         EmoteStatTracker.bttv_stats[EmoteStatTracker.word] += 1
-        with open('./stats/' + EmoteStatTracker.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
+        month = EmoteStatTracker.today.strftime("%B %Y")
+        date = EmoteStatTracker.today.strftime("%Y-%m-%d")
+        filename = f'{date}.json'
+        folderpath = f'{EmoteStatTracker.folderpath}{month}/'
+        directory = os.path.dirname(folderpath)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        with open(folderpath + filename, 'w') as f:
             f.write(json.dumps(EmoteStatTracker.stats))
             f.close
     
@@ -96,18 +118,35 @@ class EmoteStatTracker:
             elif emote not in EmoteStatTracker.emote_switch.keys():
                 EmoteStatTracker.emote_switch[emote] = self.bttv
         old_emotes = []
+        current_emotes = []
         for emote in EmoteStatTracker.bttv_stats.keys():
+            current_emotes.append(emote)
+        for emote in current_emotes:
             if emote not in emotes:
                 old_emotes.append(emote)
-                del EmoteStatTracker.bttv_stats[emote]
-                del EmoteStatTracker.emote_switch[emote]
+                try:
+                    del EmoteStatTracker.bttv_stats[emote]
+                except:
+                    continue
+                try:
+                    del EmoteStatTracker.emote_switch[emote]
+                except:
+                    continue
         removed_emotes = ' '.join(old_emotes)
         logger.info('Removed bttv emotes ' + removed_emotes)
+        return removed_emotes
     
     
     def sub(self):
         EmoteStatTracker.sub_stats[EmoteStatTracker.word] += 1
-        with open('./stats/' + EmoteStatTracker.today.strftime("%Y-%m-%d") +'.json', 'w') as f:
+        month = EmoteStatTracker.today.strftime("%B %Y")
+        date = EmoteStatTracker.today.strftime("%Y-%m-%d")
+        filename = f'{date}.json'
+        folderpath = f'{EmoteStatTracker.folderpath}{month}/'
+        directory = os.path.dirname(folderpath)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        with open(folderpath + filename, 'w') as f:
             f.write(json.dumps(EmoteStatTracker.stats))
             f.close
     
@@ -132,11 +171,23 @@ class EmoteStatTracker:
             elif emote not in EmoteStatTracker.emote_switch.keys():
                 EmoteStatTracker.emote_switch[emote] = self.sub
         old_emotes = []
+        current_emotes = []
         for emote in EmoteStatTracker.sub_stats.keys():
+            current_emotes.append(emote)
+        for emote in current_emotes:
             if emote not in emotes:
                 old_emotes.append(emote)
-                del EmoteStatTracker.sub_stats[emote]
-                del EmoteStatTracker.emote_switch[emote]
+                try:
+                    del EmoteStatTracker.sub_stats[emote]
+                except:
+                    continue
+                try:
+                    del EmoteStatTracker.emote_switch[emote]
+                except:
+                    continue
+        removed_emotes = ' '.join(old_emotes)
+        logger.info('Removed sub emotes ' + removed_emotes)
+        return removed_emotes
     
 
     def start(self):
@@ -146,7 +197,6 @@ class EmoteStatTracker:
         EmoteStatTracker.command_switch['!updateffz'] = self.ffz_update
         EmoteStatTracker.command_switch['!updatebttv'] = self.bttv_update
         EmoteStatTracker.command_switch['!updatesub'] = self.sub_update
-        print(EmoteStatTracker.emote_switch)
     
 
     def new_day(self):
@@ -164,16 +214,24 @@ class EmoteStatTracker:
         try:
             if message['display-name'] == 'streamelements' or message['display-name'] == 'zambamai':
                 return False
+            elif message['display-name'] == 'zambam5' and message['channel'] == 'zambam5':
+                word_list = message['actual message'].rstrip().split(" ")
+                removed_emotes = EmoteStatTracker.command_switch.get(word_list[0], lambda : False)()
+                if removed_emotes == False:
+                    return False
+                elif removed_emotes == '':
+                    return "Update completed, no emotes removed"
+                else:
+                    return "Update completed, removed " + removed_emotes
         except:
             logger.info('bad message')
-            return
+            return False
         today = datetime.today()
         if EmoteStatTracker.today.day != today.day:
             EmoteStatTracker.today = datetime.today()
             self.new_day()
         word_list = message['actual message'].rstrip().split(" ")
-        if message['display-name'] == 'zambam5':
-            EmoteStatTracker.command_switch.get(word_list[0], lambda : False)()
         for word in word_list:
             EmoteStatTracker.word = word
             EmoteStatTracker.emote_switch.get(EmoteStatTracker.word, lambda : False)()
+        return False

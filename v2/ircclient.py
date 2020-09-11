@@ -58,9 +58,10 @@ class Twitch:
         test = self.s.recv(1024).decode("utf-8")
         logger.info(test)
 
-        self.s.send(f"JOIN {CHAN}\r\n".encode("utf-8"))
-        test = self.s.recv(1024).decode("utf-8")
-        logger.info(test)
+        for chan in CHAN:
+            self.s.send(f"JOIN {chan}\r\n".encode("utf-8"))
+            test = self.s.recv(1024).decode("utf-8")
+            logger.info(test)
 
         self.s.send("CAP REQ :twitch.tv/tags\r\n".encode("utf-8"))
         test = self.s.recv(1024).decode("utf-8")
@@ -94,6 +95,11 @@ class Twitch:
                 count = count*2
 
 
+    def reconnect(self):
+        self.connect(self.HOST, self.PORT)
+        self.login(self.PASS, self.NICK, self.CHAN)
+
+
     def chat(self, msg, CHAN):
         # this was not written by me
         '''
@@ -102,7 +108,7 @@ class Twitch:
         sock -- the socket over which to send the message
         msg  -- the message to be sent
         '''
-        self.s.send(f"PRIVMSG {CHAN} :{msg}\r\n".encode("utf-8"))
+        self.s.send(f"PRIVMSG #{CHAN} :{msg}\r\n".encode("utf-8"))
         return True
 
 
@@ -135,13 +141,16 @@ class Twitch:
             
             try:
                 action = m.group('action')
-                if action == 'HOSTTARGET':
-                    hostm = self.regex['host'].match(message)
-                    hchannel = hostm.group("channel")
-                    viewers = hostm.group('count')
-                    messagedict['host target'] = hchannel
-                    messagedict['host views'] = viewers
                 messagedict['message type'] = action
+                if action == 'HOSTTARGET':
+                    try:
+                        hostm = self.regex['host'].match(message)
+                        hchannel = hostm.group("channel")
+                        viewers = hostm.group('count')
+                        messagedict['host target'] = hchannel
+                        messagedict['host views'] = viewers
+                    except:
+                        messagedict['host target'] = '-'
             except:
                 action = None
             
@@ -166,7 +175,7 @@ class Twitch:
 
     def recv_message(self):
         try:
-            response = self.s.recv(8192).decode("utf-8")
+            response = self.s.recv(2048).decode("utf-8")
         except socket.timeout:
             print("timed out, attempting reconnect")
             self.exponential_backoff()
@@ -184,6 +193,7 @@ class Twitch:
             try:
                 if not messagedict:
                     logger.info('bad message')
+                    logger.info(message)
                     continue
                 elif messagedict['message type'] == 'PING':
                     self.ping()
